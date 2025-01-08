@@ -1,0 +1,19 @@
+{
+    "compilerOptions": {
+        "noImplicitAny": true,
+        "target": "es2022",
+        "lib": ["es2022", "dom", "WebWorker"],
+        "sourceMap": true,
+        "inlineSources": true,
+        "module": "es2020",
+        "moduleResolution": "node",
+        "resolveJsonModule": true,
+        "baseUrl": ".",
+        "paths": {
+            "playcanvas": ["node_modules/playcanvas/build/playcanvas"],
+            "pcui": ["node_modules/@playcanvas/pcui"]
+        }
+    },
+    "include": ["./src/**/*.ts"],
+    "exclude": ["node_modules", "**/*.js", "dist"]
+}
