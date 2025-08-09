@@ -374,6 +374,9 @@ class Scene {
 
     private onPostRender() {
         this.forEachElement(e => e.onPostRender());
+
+        // notify listeners that the frame has finished rendering
+        this.events.fire('postrender');
     }
 }
 

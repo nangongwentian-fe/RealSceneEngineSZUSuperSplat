@@ -15,6 +15,7 @@ import { RightToolbar } from './right-toolbar';
 import { ScenePanel } from './scene-panel';
 import { ShortcutsPopup } from './shortcuts-popup';
 import { Spinner } from './spinner';
+import { ProgressBar } from './progress-bar';
 import { Tooltips } from './tooltips';
 import { ViewCube } from './view-cube';
 import { ViewPanel } from './view-panel';
@@ -171,9 +172,7 @@ class EditorUI {
         });
 
         // spinner
-
         const spinner = new Spinner();
-
         topContainer.append(spinner);
 
         events.on('startSpinner', () => {
@@ -182,6 +181,25 @@ class EditorUI {
 
         events.on('stopSpinner', () => {
             spinner.hidden = true;
+        });
+
+        // progress bar
+        const progressBar = new ProgressBar();
+        topContainer.append(progressBar);
+
+        events.on('progress.start', () => {
+            progressBar.setProgress(0);
+            progressBar.hidden = false;
+        });
+
+        events.on('progress.update', (value: number) => {
+            progressBar.setProgress(value);
+        });
+
+        events.on('progress.finish', () => {
+            // 确保进度显示到 100% 后立即隐藏
+            progressBar.setProgress(1);
+            progressBar.hidden = true;
         });
 
         // initialize canvas to correct size before creating graphics device etc

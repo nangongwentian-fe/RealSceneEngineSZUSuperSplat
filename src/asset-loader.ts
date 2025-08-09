@@ -99,24 +99,29 @@ class AssetLoader {
     }
 
     loadPly(loadRequest: ModelLoadRequest) {
+
         this.events.fire('startSpinner');
+        this.events.fire('progress.start');
 
-        return new Promise<Splat>((resolve, reject) => {
-            const asset = new Asset(
-                loadRequest.filename || loadRequest.url,
-                'gsplat',
-                {
-                    url: loadRequest.url,
-                    filename: loadRequest.filename,
-                    contents: loadRequest.contents
-                },
-                {
-                    // decompress data on load
-                    decompress: true
-                }
-            );
+        // helper to create and load asset from buffer
+        const createAssetFromBuffer = (buffer: ArrayBuffer) => {
+            return new Promise<Splat>((resolve, reject) => {
+                const asset = new Asset(
+                    loadRequest.filename || loadRequest.url,
+                    'gsplat',
+                    {
+                        // 使用本地 blob URL，避免二次网络请求，同时仍满足加载器对 url 字段的依赖
+                        url: URL.createObjectURL(new Blob([buffer])),
+                        filename: loadRequest.filename,
+                        contents: buffer
+                    },
+                    {
+                        decompress: true                 // keep original behaviour
+                    }
+                );
 
-            asset.on('load', () => {
+                asset.on('load', () => {
+                    this.events.fire('progress.update', 1);
                 // support loading 2d splats by adding scale_2 property with almost 0 scale
                 const splatData = asset.resource.splatData;
                 if (splatData.getProp('scale_0') && splatData.getProp('scale_1') && !splatData.getProp('scale_2')) {
@@ -147,24 +152,123 @@ class AssetLoader {
                 reject(err);
             });
 
-            this.registry.add(asset);
-            this.registry.load(asset);
-        }).finally(() => {
-            this.events.fire('stopSpinner');
-        });
+
+                this.registry.add(asset);
+                this.registry.load(asset);
+            });
+        };
+
+        // if contents already provided (e.g. local drag-n-drop), just load directly
+        if (loadRequest.contents) {
+            return createAssetFromBuffer(loadRequest.contents).finally(() => {
+                this.events.fire('progress.finish');
+                this.events.fire('stopSpinner');
+            });
+        }
+
+        // otherwise fetch the file with real progress events
+        return fetch(loadRequest.url)
+            .then((response) => {
+                if (!response || !response.ok) {
+                    throw new Error('Failed to fetch PLY data');
+                }
+
+                const contentLengthHeader = response.headers.get('Content-Length');
+                const totalBytes = contentLengthHeader ? parseInt(contentLengthHeader, 10) : 0;
+
+                if (!response.body || !totalBytes) {
+                    // fallback: no progress possible
+                    return response.arrayBuffer();
+                }
+
+                const reader = response.body.getReader();
+                let received = 0;
+                const chunks: Uint8Array[] = [];
+
+                const readChunk = (): Promise<ArrayBuffer> => {
+                    return reader.read().then(({ done, value }) => {
+                        if (done) {
+                            const buffer = new Uint8Array(received);
+                            let offset = 0;
+                            for (const chunk of chunks) {
+                                buffer.set(chunk, offset);
+                                offset += chunk.length;
+                            }
+                            return buffer.buffer;
+                        }
+
+                        if (value) {
+                            chunks.push(value);
+                            received += value.length;
+                            if (totalBytes) {
+                                this.events.fire('progress.update', received / totalBytes);
+                            }
+                        }
+
+                        return readChunk();
+                    });
+                };
+
+                return readChunk();
+            })
+            .then((arrayBuffer) => createAssetFromBuffer(arrayBuffer))
+            .finally(() => {
+                this.events.fire('progress.finish');
+                this.events.fire('stopSpinner');
+            });
     }
 
     loadSplat(loadRequest: ModelLoadRequest) {
         this.events.fire('startSpinner');
+        this.events.fire('progress.start');
 
         return new Promise<Splat>((resolve, reject) => {
-            fetch(loadRequest.url || loadRequest.filename)
+            const url = loadRequest.url || loadRequest.filename;
+
+            fetch(url)
             .then((response) => {
                 if (!response || !response.ok || !response.body) {
-                    reject(new Error('Failed to fetch splat data'));
-                } else {
+                    throw new Error('Failed to fetch splat data');
+                }
+
+                const contentLengthHeader = response.headers.get('Content-Length');
+                const totalBytes = contentLengthHeader ? parseInt(contentLengthHeader, 10) : 0;
+
+                // If we cannot determine size, fall back to arrayBuffer directly.
+                if (!response.body || !totalBytes) {
                     return response.arrayBuffer();
                 }
+
+                const reader = response.body.getReader();
+                let received = 0;
+                const chunks: Uint8Array[] = [];
+
+                const readChunk = (): Promise<ArrayBuffer> => {
+                    return reader.read().then(({ done, value }) => {
+                        if (done) {
+                            // concatenate
+                            const buffer = new Uint8Array(received);
+                            let offset = 0;
+                            for (const chunk of chunks) {
+                                buffer.set(chunk, offset);
+                                offset += chunk.length;
+                            }
+                            return buffer.buffer;
+                        }
+
+                        if (value) {
+                            chunks.push(value);
+                            received += value.length;
+                            if (totalBytes) {
+                                this.events.fire('progress.update', received / totalBytes);
+                            }
+                        }
+
+                        return readChunk();
+                    });
+                };
+
+                return readChunk();
             })
             .then(arrayBuffer => deserializeFromSSplat(arrayBuffer))
             .then((gsplatData) => {
@@ -173,6 +277,8 @@ class AssetLoader {
                     filename: loadRequest.filename
                 });
                 asset.resource = new GSplatResource(this.device, gsplatData);
+                // 解析完成，通知进度条100%
+                this.events.fire('progress.update', 1);
                 resolve(new Splat(asset));
             })
             .catch((err) => {
@@ -180,6 +286,7 @@ class AssetLoader {
                 reject(new Error('Failed to load splat data'));
             });
         }).finally(() => {
+            this.events.fire('progress.finish');
             this.events.fire('stopSpinner');
         });
     }

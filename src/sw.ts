@@ -43,6 +43,14 @@ self.addEventListener('activate', () => {
 });
 
 self.addEventListener('fetch', (event) => {
+    const requestUrl = new URL(event.request.url);
+
+    // 仅处理同源请求，避免对外部（跨域）文件重复下载
+    if (requestUrl.origin !== self.location.origin) {
+        // 对于跨域资源，直接让浏览器默认行为即可
+        return;
+    }
+
     event.respondWith(
         caches.match(event.request)
         .then(response => response ?? fetch(event.request))
