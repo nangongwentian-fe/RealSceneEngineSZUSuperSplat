@@ -10,9 +10,10 @@ import { ImageSettingsDialog } from './image-settings-dialog';
 import { localize, localizeInit } from './localization';
 import { Menu } from './menu';
 import { ModeToggle } from './mode-toggle';
-import logo from './playcanvas-logo.png';
+import logo from './images/szu-logo.png';
 import { Popup, ShowOptions } from './popup';
 import { Progress } from './progress';
+import { ProgressBar } from './progress-bar';
 import { PublishSettingsDialog } from './publish-settings-dialog';
 import { RightToolbar } from './right-toolbar';
 import { ScenePanel } from './scene-panel';
@@ -69,7 +70,7 @@ class EditorUI {
         // app label
         const appLabel = new Label({
             id: 'app-label',
-            text: `SUPERSPLAT v${version}`
+            text: `深圳大学-面向具身智能的实景数据引擎 v${version}`
         });
 
         // cursor label
@@ -284,6 +285,42 @@ class EditorUI {
 
         events.on('progressEnd', () => {
             progress.hidden = true;
+        });
+
+        // progress bar
+
+        const progressBar = new ProgressBar();
+
+        topContainer.append(progressBar);
+
+        // Listen to both progress events and spinner events
+        events.on('progressStart', () => {
+            progressBar.setProgress(0);
+            progressBar.hidden = false;
+        });
+
+        events.on('progressUpdate', (options: { text: string, progress: number }) => {
+            progressBar.setProgress(options.progress / 100);
+        });
+
+        events.on('progressEnd', () => {
+            progressBar.setProgress(1);
+            progressBar.hidden = true;
+        });
+
+        // Also show progress bar during spinner operations (file loading)
+        events.on('startSpinner', () => {
+            progressBar.setProgress(0);
+            progressBar.hidden = false;
+            // Show indeterminate progress for spinner operations
+            progressBar.setProgress(0.1);
+        });
+
+        events.on('stopSpinner', () => {
+            progressBar.setProgress(1);
+            setTimeout(() => {
+                progressBar.hidden = true;
+            }, 200); // Brief delay to show 100% completion
         });
 
         // initialize canvas to correct size before creating graphics device etc
