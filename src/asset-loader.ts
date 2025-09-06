@@ -98,6 +98,11 @@ class AssetLoader {
     }
 
     loadPly(loadRequest: ModelLoadRequest) {
+        // For remote URLs, use progress-aware loading
+        if (loadRequest.url && !loadRequest.contents) {
+            return this.loadPlyWithProgress(loadRequest);
+        }
+
         if (!loadRequest.animationFrame) {
             this.events.fire('startSpinner');
         }
@@ -174,7 +179,123 @@ class AssetLoader {
         });
     }
 
+    // 带进度监控的PLY加载方法
+    async loadPlyWithProgress(loadRequest: ModelLoadRequest): Promise<Splat> {
+        const filename = loadRequest.filename || loadRequest.url?.split('/').pop() || 'unknown.ply';
+        
+        try {
+            // 开始进度显示
+            this.events.fire('progressStart', `Loading ${filename}`);
+            this.events.fire('progressUpdate', {
+                text: 'Connecting to server...',
+                progress: 0
+            });
+
+            // 获取响应
+            const response = await fetch(loadRequest.url);
+            
+            if (!response.ok) {
+                throw new Error(`Failed to fetch ${loadRequest.url}: ${response.status} ${response.statusText}`);
+            }
+
+            // 获取文件大小
+            const contentLength = response.headers.get('Content-Length');
+            const totalBytes = contentLength ? parseInt(contentLength, 10) : 0;
+
+            if (!response.body) {
+                throw new Error('ReadableStream not supported');
+            }
+
+            this.events.fire('progressUpdate', {
+                text: `Downloading ${filename}...`,
+                progress: 0
+            });
+
+            // 使用ReadableStream监控下载进度
+            const reader = response.body.getReader();
+            const chunks: Uint8Array[] = [];
+            let receivedBytes = 0;
+
+            while (true) {
+                const { done, value } = await reader.read();
+                
+                if (done) break;
+                
+                chunks.push(value);
+                receivedBytes += value.length;
+
+                // 更新下载进度
+                if (totalBytes > 0) {
+                    const progress = Math.min(95, (receivedBytes / totalBytes) * 100);
+                    this.events.fire('progressUpdate', {
+                        text: `Downloading ${filename}... (${Math.round(receivedBytes / 1024 / 1024 * 100) / 100}MB / ${Math.round(totalBytes / 1024 / 1024 * 100) / 100}MB)`,
+                        progress
+                    });
+                } else {
+                    // 如果无法获取总大小，显示已下载的字节数
+                    this.events.fire('progressUpdate', {
+                        text: `Downloading ${filename}... (${Math.round(receivedBytes / 1024 / 1024 * 100) / 100}MB)`,
+                        progress: Math.min(90, receivedBytes / (1024 * 1024) * 10) // 估算进度
+                    });
+                }
+            }
+
+            // 合并所有chunks
+            const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+            const combinedArray = new Uint8Array(totalLength);
+            let offset = 0;
+            for (const chunk of chunks) {
+                combinedArray.set(chunk, offset);
+                offset += chunk.length;
+            }
+
+            this.events.fire('progressUpdate', {
+                text: 'Processing file...',
+                progress: 96
+            });
+
+            // 创建Blob并转换为File对象
+            const blob = new Blob([combinedArray], { type: 'application/ply' });
+            const file = new File([blob], filename, { type: 'application/ply' });
+
+            // 使用现有的loadPly方法处理文件
+            const modifiedRequest: ModelLoadRequest = {
+                ...loadRequest,
+                contents: file,
+                url: undefined // 避免递归调用
+            };
+
+            this.events.fire('progressUpdate', {
+                text: 'Loading 3D data...',
+                progress: 98
+            });
+
+            const result = await this.loadPly(modifiedRequest);
+
+            this.events.fire('progressUpdate', {
+                text: 'Complete!',
+                progress: 100
+            });
+
+            return result;
+
+        } catch (error) {
+            console.error('Error loading PLY with progress:', error);
+            throw error;
+        } finally {
+            // 延迟关闭进度条，让用户看到100%
+            setTimeout(() => {
+                this.events.fire('progressEnd');
+            }, 500);
+        }
+    }
+
     async loadSplat(loadRequest: ModelLoadRequest) {
+        // For remote URLs, use progress-aware loading
+        if (loadRequest.url && !loadRequest.contents) {
+            return this.loadSplatWithProgress(loadRequest);
+        }
+
         this.events.fire('startSpinner');
 
         try {
@@ -199,6 +320,114 @@ class AssetLoader {
             return new Splat(asset);
         } finally {
             this.events.fire('stopSpinner');
+        }
+    }
+
+    // 带进度监控的SPLAT加载方法
+    async loadSplatWithProgress(loadRequest: ModelLoadRequest): Promise<Splat> {
+        const filename = loadRequest.filename || loadRequest.url?.split('/').pop() || 'unknown.splat';
+        
+        try {
+            // 开始进度显示
+            this.events.fire('progressStart', `Loading ${filename}`);
+            this.events.fire('progressUpdate', {
+                text: 'Connecting to server...',
+                progress: 0
+            });
+
+            // 获取响应
+            const response = await fetch(loadRequest.url);
+            
+            if (!response.ok) {
+                throw new Error(`Failed to fetch ${loadRequest.url}: ${response.status} ${response.statusText}`);
+            }
+
+            // 获取文件大小
+            const contentLength = response.headers.get('Content-Length');
+            const totalBytes = contentLength ? parseInt(contentLength, 10) : 0;
+
+            if (!response.body) {
+                throw new Error('ReadableStream not supported');
+            }
+
+            this.events.fire('progressUpdate', {
+                text: `Downloading ${filename}...`,
+                progress: 0
+            });
+
+            // 使用ReadableStream监控下载进度
+            const reader = response.body.getReader();
+            const chunks: Uint8Array[] = [];
+            let receivedBytes = 0;
+
+            while (true) {
+                const { done, value } = await reader.read();
+                
+                if (done) break;
+                
+                chunks.push(value);
+                receivedBytes += value.length;
+
+                // 更新下载进度
+                if (totalBytes > 0) {
+                    const progress = Math.min(95, (receivedBytes / totalBytes) * 100);
+                    this.events.fire('progressUpdate', {
+                        text: `Downloading ${filename}... (${Math.round(receivedBytes / 1024 / 1024 * 100) / 100}MB / ${Math.round(totalBytes / 1024 / 1024 * 100) / 100}MB)`,
+                        progress
+                    });
+                } else {
+                    // 如果无法获取总大小，显示已下载的字节数
+                    this.events.fire('progressUpdate', {
+                        text: `Downloading ${filename}... (${Math.round(receivedBytes / 1024 / 1024 * 100) / 100}MB)`,
+                        progress: Math.min(90, receivedBytes / (1024 * 1024) * 10) // 估算进度
+                    });
+                }
+            }
+
+            // 合并所有chunks为ArrayBuffer
+            const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+            const combinedArray = new Uint8Array(totalLength);
+            let offset = 0;
+            for (const chunk of chunks) {
+                combinedArray.set(chunk, offset);
+                offset += chunk.length;
+            }
+
+            this.events.fire('progressUpdate', {
+                text: 'Processing file...',
+                progress: 96
+            });
+
+            // 处理SPLAT数据
+            const gsplatData = deserializeFromSSplat(combinedArray.buffer);
+
+            this.events.fire('progressUpdate', {
+                text: 'Loading 3D data...',
+                progress: 98
+            });
+
+            const asset = new Asset(filename, 'gsplat', {
+                url: loadRequest.url,
+                filename: filename
+            });
+            this.app.assets.add(asset);
+            asset.resource = new GSplatResource(this.app.graphicsDevice, gsplatData);
+
+            this.events.fire('progressUpdate', {
+                text: 'Complete!',
+                progress: 100
+            });
+
+            return new Splat(asset);
+
+        } catch (error) {
+            console.error('Error loading SPLAT with progress:', error);
+            throw error;
+        } finally {
+            // 延迟关闭进度条，让用户看到100%
+            setTimeout(() => {
+                this.events.fire('progressEnd');
+            }, 500);
         }
     }
 
